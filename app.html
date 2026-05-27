@@ -149,7 +149,31 @@
     .admin-client-plan { padding: 4px 12px; border-radius: 100px; font-size: 11px; font-family: 'Space Mono', monospace; background: rgba(124,92,252,0.12); color: var(--accent); border: 1px solid rgba(124,92,252,0.3); }
     .admin-accounts-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .admin-account-tag { padding: 4px 12px; background: var(--surface2); border-radius: 100px; font-size: 12px; color: var(--muted); font-family: 'Space Mono', monospace; }
-    @media (max-width: 768px) { .stats-row { grid-template-columns: repeat(2, 1fr); } .accounts-grid { grid-template-columns: 1fr; } .setup-grid { grid-template-columns: 1fr; } }
+    .admin-stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+    .admin-stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; }
+    .admin-stat-num { font-size: 28px; font-weight: 800; line-height: 1; margin-bottom: 4px; }
+    .admin-stat-label { font-size: 11px; color: var(--muted); font-family: 'Space Mono', monospace; text-transform: uppercase; letter-spacing: 0.08em; }
+    .admin-search { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; color: var(--text); font-family: 'Syne', sans-serif; font-size: 14px; outline: none; margin-bottom: 20px; transition: border-color 0.2s; }
+    .admin-search:focus { border-color: var(--accent); }
+    .admin-user { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 16px; transition: border-color 0.2s; }
+    .admin-user:hover { border-color: var(--accent); }
+    .admin-user-email { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+    .admin-user-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .admin-badge { padding: 3px 10px; border-radius: 100px; font-size: 11px; font-family: 'Space Mono', monospace; }
+    .admin-badge.active { background: rgba(45,252,142,0.1); color: var(--green); border: 1px solid rgba(45,252,142,0.3); }
+    .admin-badge.pending { background: rgba(252,220,45,0.1); color: var(--yellow); border: 1px solid rgba(252,220,45,0.3); }
+    .admin-badge.info { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+    .admin-user-controls { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+    .plan-select { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; color: var(--text); font-family: 'Space Mono', monospace; font-size: 11px; outline: none; cursor: pointer; transition: border-color 0.2s; }
+    .plan-select:focus { border-color: var(--accent); }
+    .btn-activate { padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Syne', sans-serif; transition: all 0.2s; background: rgba(45,252,142,0.15); color: var(--green); border: 1px solid rgba(45,252,142,0.3); }
+    .btn-activate:hover { background: rgba(45,252,142,0.3); }
+    .btn-deactivate { padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: 'Syne', sans-serif; transition: all 0.2s; background: rgba(252,220,45,0.12); color: var(--yellow); border: 1px solid rgba(252,220,45,0.3); }
+    .btn-deactivate:hover { background: rgba(252,220,45,0.25); }
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 12px 20px; border-radius: 12px; font-size: 13px; font-weight: 600; z-index: 9999; animation: fadeIn 0.3s ease; }
+    .toast.success { background: rgba(45,252,142,0.15); color: var(--green); border: 1px solid rgba(45,252,142,0.3); }
+    .toast.error { background: rgba(252,92,124,0.15); color: var(--accent2); border: 1px solid rgba(252,92,124,0.3); }
+    @media (max-width: 768px) { .stats-row { grid-template-columns: repeat(2, 1fr); } .accounts-grid { grid-template-columns: 1fr; } .setup-grid { grid-template-columns: 1fr; } .admin-stats-grid { grid-template-columns: repeat(2, 1fr); } .admin-user { flex-direction: column; align-items: flex-start; } }
   </style>
 </head>
 <body>
@@ -806,43 +830,133 @@
     container.innerHTML = '<div class="loading"><div class="loading-spinner"></div>Chargement...</div>';
 
     try {
-      // Récupère tous les comptes Airtable sans filtre
-      const res = await fetch(`${API}/admin-accounts?secret=${WSECRET}`);
-      const data = await res.json();
-      const records = data.records || [];
+      const [usersRes, accountsRes] = await Promise.all([
+        fetch(`${API}/admin-users?secret=${WSECRET}`),
+        fetch(`${API}/admin-accounts?secret=${WSECRET}`)
+      ]);
+      const users = await usersRes.json();
+      const accountsData = await accountsRes.json();
+      const records = accountsData.records || [];
 
-      if (records.length === 0) {
-        container.innerHTML = '<div class="loading">Aucun compte client trouvé</div>';
-        return;
+      const accountsPerUser = {};
+      records.forEach(r => {
+        const uid = r.fields['user_id'] || '';
+        if (uid) accountsPerUser[uid] = (accountsPerUser[uid] || 0) + 1;
+      });
+
+      const activeCount = users.filter(u => u.activated).length;
+      const pendingCount = users.filter(u => !u.activated).length;
+
+      let html = `
+        <div class="admin-stats-grid">
+          <div class="admin-stat-card">
+            <div class="admin-stat-num" style="color:var(--accent)">${users.length}</div>
+            <div class="admin-stat-label">Total clients</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-num" style="color:var(--green)">${activeCount}</div>
+            <div class="admin-stat-label">Actifs</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-num" style="color:var(--yellow)">${pendingCount}</div>
+            <div class="admin-stat-label">En attente</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-num" style="color:var(--accent2)">${records.length}</div>
+            <div class="admin-stat-label">Total comptes</div>
+          </div>
+        </div>
+        <input class="admin-search" type="text" placeholder="Rechercher un client..." oninput="filterAdminUsers(this.value)">
+        <div id="adminUsersList">`;
+
+      if (users.length === 0) {
+        html += '<div class="loading">Aucun client trouvé</div>';
+      } else {
+        users.forEach(user => {
+          const accs = accountsPerUser[user.email] || 0;
+          const isActive = user.activated;
+          const plan = user.plan || 'starter';
+          html += `
+            <div class="admin-user" data-email="${user.email}">
+              <div>
+                <div class="admin-user-email">${user.email}</div>
+                <div class="admin-user-meta">
+                  <span class="admin-badge ${isActive ? 'active' : 'pending'}">${isActive ? '● Actif' : '○ En attente'}</span>
+                  <span class="admin-badge info">${accs} compte${accs !== 1 ? 's' : ''}</span>
+                  <span class="admin-badge info">Slots : ${user.accounts_used || 0} utilisés</span>
+                </div>
+              </div>
+              <div class="admin-user-controls">
+                <select class="plan-select" onchange="updateUserPlan('${user.email}', this.value)">
+                  <option value="starter" ${plan === 'starter' ? 'selected' : ''}>⚡ Starter (3)</option>
+                  <option value="pro" ${plan === 'pro' ? 'selected' : ''}>🚀 Pro (10)</option>
+                  <option value="agency" ${plan === 'agency' ? 'selected' : ''}>🏢 Agency (∞)</option>
+                </select>
+                ${isActive
+                  ? `<button class="btn-deactivate" onclick="toggleUserActivated('${user.email}', false, this)">Suspendre</button>`
+                  : `<button class="btn-activate" onclick="toggleUserActivated('${user.email}', true, this)">Activer</button>`
+                }
+              </div>
+            </div>`;
+        });
       }
 
-      // Groupe par user_id (email)
-      const clients = {};
-      records.forEach(r => {
-        const uid = r.fields['user_id'] || 'Inconnu';
-        if (!clients[uid]) clients[uid] = [];
-        clients[uid].push(r.fields['Nom du compte'] || 'Compte sans nom');
-      });
-
-      let html = `<div style="margin-bottom:20px;font-family:'Space Mono',monospace;font-size:12px;color:var(--muted)">${records.length} comptes — ${Object.keys(clients).length} clients</div>`;
-
-      Object.entries(clients).forEach(([email, accounts]) => {
-        html += `
-          <div class="admin-client">
-            <div class="admin-client-header">
-              <div class="admin-client-email">${email}</div>
-              <div class="admin-client-plan">${accounts.length} compte${accounts.length > 1 ? 's' : ''}</div>
-            </div>
-            <div class="admin-accounts-list">
-              ${accounts.map(a => `<span class="admin-account-tag">${a}</span>`).join('')}
-            </div>
-          </div>`;
-      });
-
+      html += '</div>';
       container.innerHTML = html;
     } catch(e) {
       container.innerHTML = `<div class="loading" style="color:var(--accent2)">⚠ Erreur: ${e.message}</div>`;
     }
+  }
+
+  function filterAdminUsers(query) {
+    const q = query.toLowerCase();
+    document.querySelectorAll('.admin-user').forEach(el => {
+      el.style.display = el.dataset.email.toLowerCase().includes(q) ? '' : 'none';
+    });
+  }
+
+  async function updateUserPlan(email, plan) {
+    try {
+      const res = await fetch(`${API}/admin-update-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, plan, secret: WSECRET })
+      });
+      const data = await res.json();
+      showToast(Array.isArray(data) && data.length > 0 ? `Plan mis à jour : ${plan} ✓` : 'Erreur plan', !Array.isArray(data) || data.length === 0);
+    } catch(e) { showToast('Erreur réseau', true); }
+  }
+
+  async function toggleUserActivated(email, activated, btn) {
+    btn.disabled = true;
+    btn.textContent = '...';
+    try {
+      const res = await fetch(`${API}/admin-update-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, activated, secret: WSECRET })
+      });
+      const data = await res.json();
+      if (Array.isArray(data) && data.length > 0) {
+        showToast(activated ? `${email} activé ✓` : `${email} suspendu`);
+        loadAdminData();
+      } else {
+        showToast('Erreur', true);
+        btn.disabled = false;
+        btn.textContent = activated ? 'Activer' : 'Suspendre';
+      }
+    } catch(e) {
+      showToast('Erreur réseau', true);
+      btn.disabled = false;
+    }
+  }
+
+  function showToast(msg, isError = false) {
+    const toast = document.createElement('div');
+    toast.className = `toast ${isError ? 'error' : 'success'}`;
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
   }
 
   function switchTab(tab, btn) {
