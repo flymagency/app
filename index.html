@@ -645,6 +645,67 @@
       transform: translateY(0);
     }
 
+    /* WAITLIST */
+    .waitlist-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 64px 48px;
+      text-align: center;
+      margin-bottom: 80px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .waitlist-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--green), var(--accent));
+    }
+
+    .waitlist-form {
+      display: flex;
+      gap: 12px;
+      max-width: 480px;
+      margin: 0 auto 16px;
+    }
+
+    .waitlist-input {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 18px;
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .waitlist-input:focus { border-color: var(--accent); }
+
+    .waitlist-btn {
+      padding: 14px 28px;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 15px;
+      font-weight: 700;
+      font-family: 'Syne', sans-serif;
+      cursor: pointer;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+
+    .waitlist-btn:hover { background: #9b7ffd; transform: scale(1.02); }
+    .waitlist-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    .waitlist-msg { font-size: 14px; min-height: 20px; margin-top: 4px; }
+
     @media (max-width: 768px) {
       .problem-grid { grid-template-columns: 1fr; }
       .features-grid { grid-template-columns: 1fr; }
@@ -655,6 +716,8 @@
       .nav-links { display: none; }
       .hero-ctas { flex-direction: column; }
       footer { flex-direction: column; gap: 16px; text-align: center; }
+      .waitlist-form { flex-direction: column; }
+      .waitlist-card { padding: 40px 24px; }
     }
   </style>
 </head>
@@ -880,6 +943,22 @@
   </div>
 </section>
 
+<!-- WAITLIST -->
+<section class="section">
+  <div class="container">
+    <div class="waitlist-card reveal">
+      <div class="section-label" style="color:var(--green);text-align:center">Accès anticipé</div>
+      <h2 class="section-title" style="text-align:center;margin-bottom:12px">Prêt à démarrer ?</h2>
+      <p style="font-size:17px;color:var(--muted);text-align:center;margin-bottom:36px;line-height:1.6;max-width:480px;margin-left:auto;margin-right:auto">Entre ton email — on te contacte sous 24h pour activer ton compte.</p>
+      <div class="waitlist-form">
+        <input class="waitlist-input" id="waitlistEmail" type="email" placeholder="ton@email.com" onkeydown="if(event.key==='Enter')submitWaitlist()">
+        <button class="waitlist-btn" id="waitlistBtn" onclick="submitWaitlist()">M'inscrire →</button>
+      </div>
+      <div class="waitlist-msg" id="waitlistMsg"></div>
+    </div>
+  </div>
+</section>
+
 <!-- CTA FINAL -->
 <div class="container">
   <div class="cta-section reveal">
@@ -906,16 +985,52 @@
 </div>
 
 <script>
-  // Scroll reveal
   const observer = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        entry.target.classList.add('visible');
-      }
+      if (entry.isIntersecting) entry.target.classList.add('visible');
     });
   }, { threshold: 0.1 });
-
   document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+  async function submitWaitlist() {
+    const email = document.getElementById('waitlistEmail').value.trim();
+    const msg = document.getElementById('waitlistMsg');
+    const btn = document.getElementById('waitlistBtn');
+
+    if (!email || !email.includes('@')) {
+      msg.style.color = 'var(--accent2)';
+      msg.textContent = '⚠ Entre un email valide';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Envoi...';
+
+    try {
+      const res = await fetch('https://weathered-scene-81a4.businessflymagency.workers.dev/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, secret: 'wos_9x2k7p4m1n8q3r6t' })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        msg.style.color = 'var(--green)';
+        msg.textContent = '✓ Reçu ! On te contacte très vite.';
+        document.getElementById('waitlistEmail').value = '';
+        btn.textContent = 'Envoyé ✓';
+      } else {
+        msg.style.color = 'var(--accent2)';
+        msg.textContent = '⚠ Erreur, réessaie.';
+        btn.disabled = false;
+        btn.textContent = 'M\'inscrire →';
+      }
+    } catch(e) {
+      msg.style.color = 'var(--accent2)';
+      msg.textContent = '⚠ Erreur réseau';
+      btn.disabled = false;
+      btn.textContent = 'M\'inscrire →';
+    }
+  }
 </script>
 </body>
 </html>

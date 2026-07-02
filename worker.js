@@ -84,6 +84,29 @@ export default {
       }
     }
 
+    async function decrementAccountsUsed(userId) {
+      try {
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?email=eq.${userId}&select=accounts_used`, {
+          headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+        });
+        const data = await res.json();
+        const current = data[0]?.accounts_used || 0;
+        const newVal = Math.max(0, current - 1);
+        await fetch(`${SUPABASE_URL}/rest/v1/profiles?email=eq.${userId}`, {
+          method: 'PATCH',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ accounts_used: newVal })
+        });
+        return { success: true };
+      } catch(e) {
+        return { success: false, error: e.message };
+      }
+    }
+
     async function getGeelarkHeaders() {
       const traceId = crypto.randomUUID();
       const ts = Date.now().toString();
@@ -225,7 +248,7 @@ export default {
       if (path === '/delete-account' && request.method === 'POST') {
         const body = await request.json();
         if (body.secret !== WORKER_SECRET) return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
-        const { recordId } = body;
+        const { recordId, userId } = body;
 
         const res = await fetch(`https://api.airtable.com/v0/${AIRTABLE_BASE}/${AIRTABLE_TABLE}/${recordId}`, {
           method: 'DELETE',
@@ -233,6 +256,12 @@ export default {
         });
 
         const data = await res.json();
+
+        // FIX: décrémenter accounts_used après suppression
+        if (data.deleted && userId) {
+          await decrementAccountsUsed(userId);
+        }
+
         return new Response(JSON.stringify(data), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
@@ -309,6 +338,7 @@ export default {
         const updates = {};
         if (plan !== undefined) updates.plan = plan;
         if (activated !== undefined) updates.activated = activated;
+        if (body.accounts_used !== undefined) updates.accounts_used = body.accounts_used;
 
         const res = await fetch(`${SUPABASE_URL}/rest/v1/profiles?email=eq.${encodeURIComponent(email)}`, {
           method: 'PATCH',
@@ -326,7 +356,33 @@ export default {
         });
       }
 
-      return new Response('WarmupOS API v4', { headers: corsHeaders });
+      // POST /waitlist
+      if (path === '/waitlist' && request.method === 'POST') {
+        const body = await request.json();
+        if (body.secret !== WORKER_SECRET) return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        const { email } = body;
+        if (!email) return new Response(JSON.stringify({ error: 'Email requis' }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+        const res = await fetch(`${SUPABASE_URL}/rest/v1/waitlist`, {
+          method: 'POST',
+          headers: {
+            'apikey': SUPABASE_KEY,
+            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'return=minimal'
+          },
+          body: JSON.stringify({ email, created_at: new Date().toISOString() })
+        });
+
+        if (res.ok || res.status === 201) {
+          return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        } else {
+          const err = await res.text();
+          return new Response(JSON.stringify({ error: err }), { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+      }
+
+      return new Response('WarmupOS API v5', { headers: corsHeaders });
 
     } catch (err) {
       return new Response(JSON.stringify({ error: err.message }), {
